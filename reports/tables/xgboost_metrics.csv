@@ -1,0 +1,2 @@
+model,accuracy,f1,roc_auc
+XGBoost,0.6470588235294118,0.5,0.7575757575757576
