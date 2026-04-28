@@ -220,7 +220,7 @@ elif page == "Machine Unlearning":
 
     if st.button("Forget this patient"):
         result = subprocess.run(
-            ["python", "src/unlearning/delete_patient.py", sample_id],
+            [sys.executable, "-m", "src.unlearning.delete_patient", sample_id],
             capture_output=True,
             text=True
         )
