@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+*.joblib
+models/
+data/raw/
+data/interim/
+reports/figures/
+.vscode/
