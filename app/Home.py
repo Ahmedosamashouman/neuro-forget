@@ -1,9 +1,18 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 import streamlit as st
 import pandas as pd
 import joblib
 import subprocess
 from pathlib import Path
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT))
 from src.utils.cleaning import clean_feature_names
+
 
 st.set_page_config(page_title="Neuro-Forget", layout="wide")
 
@@ -30,14 +39,13 @@ LGBM_MODEL_PATH = Path("models/gse63060_lightgbm/lightgbm.joblib")
 XGB_METRICS_PATH = Path("reports/gse63060/xgboost_metrics.csv")
 LGBM_METRICS_PATH = Path("reports/gse63060/lightgbm_metrics.csv")
 
-SHAP_PATH = Path("reports/shap/shap_summary.png")
-SHAP_TABLE = Path("reports/shap/shap_top_features.csv")
+SHAP_PATH = Path("reports/figures/shap_summary.png")
+SHAP_TABLE = Path("reports/tables/top_shap_genes.csv")
 
 PRIVACY_AUDIT_PATH = Path("reports/tables/privacy_audit.csv")
 MIA_METRICS_PATH = Path("reports/tables/mia_metrics.csv")
 MIA_BEFORE_AFTER_PATH = Path("reports/tables/mia_before_after_metrics.csv")
 DELETED_SAMPLE_VERIFICATION_PATH = Path("reports/tables/deleted_sample_verification.csv")
-PER_SAMPLE_FORGETTING_PATH = Path("reports/tables/per_sample_forgetting_proof.csv")
 
 DELETION_LOG_PATH = Path("reports/tables/deletion_log.csv")
 UNLEARNING_BENCHMARK_PATH = Path("reports/tables/unlearning_vs_retraining.csv")
@@ -212,7 +220,7 @@ elif page == "Machine Unlearning":
 
     if st.button("Forget this patient"):
         result = subprocess.run(
-            ["python", "-m", "src.unlearning.delete_patient", sample_id],
+            ["python", "src/unlearning/delete_patient.py", sample_id],
             capture_output=True,
             text=True
         )
@@ -269,39 +277,12 @@ elif page == "Privacy Audit":
         st.dataframe(mia_metrics)
 
         before = mia_metrics[mia_metrics["stage"] == "Before unlearning"].iloc[0]
-        after = mia_metrics[mia_metrics["stage"] == "After deleting patients"].iloc[0]
+        after = mia_metrics[mia_metrics["stage"] == "After deleting one patient"].iloc[0]
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Before MIA Accuracy", round(float(before["mia_accuracy"]), 3))
         col2.metric("After MIA Accuracy", round(float(after["mia_accuracy"]), 3))
         col3.metric("After MIA AUC", round(float(after["mia_auc"]), 3))
-
-        st.markdown("""
-        ### Interpretation
-        - MIA means **Membership Inference Attack**.
-        - It tests whether an attacker can guess if a patient was used during training.
-        - Lower MIA accuracy after deletion means lower privacy leakage.
-        - If MIA accuracy does not decrease much, the model may still retain some information.
-        """)
-
-        if PER_SAMPLE_FORGETTING_PATH.exists():
-            st.subheader("Per-Sample Forgetting Proof")
-            forgetting = pd.read_csv(PER_SAMPLE_FORGETTING_PATH)
-            st.dataframe(forgetting)
-
-            avg_conf_change = forgetting["confidence_change"].mean()
-            avg_entropy_change = forgetting["entropy_change"].mean()
-
-            c1, c2 = st.columns(2)
-            c1.metric("Avg Confidence Change", round(float(avg_conf_change), 4))
-            c2.metric("Avg Entropy Change", round(float(avg_entropy_change), 4))
-
-            st.markdown("""
-            **How to read this:**
-            - Confidence decrease means the model became less certain about deleted patients.
-            - Entropy increase means the model became more uncertain.
-            - This supports the claim that deletion reduced memorization.
-            """)
 
     elif MIA_METRICS_PATH.exists():
         st.subheader("MIA Attack Metrics")
