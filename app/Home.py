@@ -4,7 +4,9 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 import streamlit as st
 import pandas as pd
 import joblib
+from xgboost import XGBClassifier
 import subprocess
+import time
 from pathlib import Path
 import sys
 from pathlib import Path
@@ -219,17 +221,63 @@ elif page == "Machine Unlearning":
     sample_id = st.selectbox("Choose patient/sample to forget", X.index.tolist())
 
     if st.button("Forget this patient"):
-        result = subprocess.run(
-            [sys.executable, "-m", "src.unlearning.delete_patient", sample_id],
-            capture_output=True,
-            text=True
-        )
-
         st.subheader("Deletion Output")
-        st.code(result.stdout)
 
-        if result.stderr:
-            st.error(result.stderr)
+        try:
+            mapping_path = Path("reports/tables/patient_to_shard.csv")
+
+            if not mapping_path.exists():
+                st.error("patient_to_shard.csv not found. Run benchmark_unlearning_vs_retraining.py first.")
+            else:
+                mapping = pd.read_csv(mapping_path)
+                mapping["sample_id"] = mapping["sample_id"].astype(str).str.replace('"', '').str.replace("'", "")
+
+                clean_sample_id = str(sample_id).replace('"', '').replace("'", "")
+
+                if clean_sample_id not in mapping["sample_id"].values:
+                    st.error(f"Sample not found in shard mapping: {clean_sample_id}")
+                else:
+                    affected_shard = int(
+                        mapping.loc[mapping["sample_id"] == clean_sample_id, "shard"].iloc[0]
+                    )
+
+                    shard_samples = mapping[mapping["shard"] == affected_shard]["sample_id"].tolist()
+                    remaining = [s for s in shard_samples if s != clean_sample_id and s in X.index]
+
+                    start = time.time()
+
+                    shard_model = XGBClassifier(
+                        n_estimators=300,
+                        max_depth=3,
+                        learning_rate=0.03,
+                        subsample=0.9,
+                        colsample_bytree=0.8,
+                        eval_metric="logloss",
+                        random_state=42
+                    )
+
+                    shard_model.fit(X.loc[remaining], y.loc[remaining])
+
+                    Path("models/shards").mkdir(parents=True, exist_ok=True)
+                    joblib.dump(shard_model, f"models/shards/shard_{affected_shard}.joblib")
+
+                    elapsed = time.time() - start
+
+                    log = pd.DataFrame([{
+                        "deleted_sample": clean_sample_id,
+                        "affected_shard": affected_shard,
+                        "remaining_samples_in_shard": len(remaining),
+                        "unlearning_time_sec": elapsed
+                    }])
+
+                    log.to_csv(DELETION_LOG_PATH, index=False)
+
+                    st.success("Patient forgotten successfully")
+                    st.dataframe(log)
+
+        except Exception as e:
+            st.error(f"Unlearning failed: {e}")
+
 
     if DELETION_LOG_PATH.exists():
         st.subheader("Deletion Log")
