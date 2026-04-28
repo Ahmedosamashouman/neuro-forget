@@ -277,7 +277,7 @@ elif page == "Privacy Audit":
         st.dataframe(mia_metrics)
 
         before = mia_metrics[mia_metrics["stage"] == "Before unlearning"].iloc[0]
-        after = mia_metrics[mia_metrics["stage"] == "After deleting one patient"].iloc[0]
+        after = mia_metrics.iloc[1]
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Before MIA Accuracy", round(float(before["mia_accuracy"]), 3))
