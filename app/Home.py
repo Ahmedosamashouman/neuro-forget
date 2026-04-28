@@ -3,18 +3,22 @@ import pandas as pd
 import joblib
 import subprocess
 from pathlib import Path
+from src.utils.cleaning import clean_feature_names
 
 st.set_page_config(page_title="Neuro-Forget", layout="wide")
 
 st.title("🧠 Neuro-Forget")
-st.subheader("Explainable Alzheimer’s detection with patient-level machine unlearning")
+st.subheader("Explainable Alzheimer’s Detection with Machine Unlearning")
 
 st.markdown("""
-This demo uses public Alzheimer’s blood transcriptomics data from **GSE63060**
-to classify Alzheimer’s disease vs control, explain predictions using SHAP,
-and demonstrate patient-level SISA-style machine unlearning.
+Neuro-Forget is an end-to-end bioinformatics AI system for Alzheimer’s disease detection.
+It combines transcriptomics-based classification, SHAP explainability, SISA-style machine
+unlearning, MIA privacy validation, and a FASTA/k-mer demo module.
 """)
 
+# =========================
+# PATHS
+# =========================
 DATASET = "GSE63060"
 
 X_PATH = Path("data/gse63060/processed/X.csv")
@@ -26,11 +30,34 @@ LGBM_MODEL_PATH = Path("models/gse63060_lightgbm/lightgbm.joblib")
 XGB_METRICS_PATH = Path("reports/gse63060/xgboost_metrics.csv")
 LGBM_METRICS_PATH = Path("reports/gse63060/lightgbm_metrics.csv")
 
-SHAP_PATH = Path("reports/figures/shap_summary.png")
-SHAP_TABLE = Path("reports/tables/top_shap_genes.csv")
+SHAP_PATH = Path("reports/shap/shap_summary.png")
+SHAP_TABLE = Path("reports/shap/shap_top_features.csv")
 
+PRIVACY_AUDIT_PATH = Path("reports/tables/privacy_audit.csv")
+MIA_METRICS_PATH = Path("reports/tables/mia_metrics.csv")
+MIA_BEFORE_AFTER_PATH = Path("reports/tables/mia_before_after_metrics.csv")
+DELETED_SAMPLE_VERIFICATION_PATH = Path("reports/tables/deleted_sample_verification.csv")
+PER_SAMPLE_FORGETTING_PATH = Path("reports/tables/per_sample_forgetting_proof.csv")
+
+DELETION_LOG_PATH = Path("reports/tables/deletion_log.csv")
+UNLEARNING_BENCHMARK_PATH = Path("reports/tables/unlearning_vs_retraining.csv")
+
+FASTA_X_PATH = Path("data/fasta_demo/X_kmers.csv")
+FASTA_Y_PATH = Path("data/fasta_demo/y_kmers.csv")
+FASTA_PATH = Path("data/fasta_demo/alzheimers_simulated.fasta")
+
+# =========================
+# LOAD MAIN DATA
+# =========================
 X = pd.read_csv(X_PATH, index_col=0)
+X = clean_feature_names(X)
 y = pd.read_csv(Y_PATH, index_col=0)["label"]
+y.index = X.index
+
+# =========================
+# SIDEBAR
+# =========================
+st.sidebar.title("Navigation")
 
 model_choice = st.sidebar.selectbox(
     "Choose Model",
@@ -44,54 +71,73 @@ else:
     model = joblib.load(LGBM_MODEL_PATH)
     metrics_path = LGBM_METRICS_PATH
 
-st.sidebar.markdown("---")
 st.sidebar.info(f"Current model: {model_choice}")
 
 page = st.sidebar.radio(
-    "Navigation",
+    "Go to",
     [
         "Overview",
         "Dataset",
         "Model Metrics",
         "Predict",
         "Explainability",
-        "Delete Patient",
+        "Machine Unlearning",
         "Privacy Audit",
+        "FASTA / k-mer Demo",
     ]
 )
 
+# =========================
+# OVERVIEW
+# =========================
 if page == "Overview":
     st.header("Project Overview")
+
     st.write("""
-    **Neuro-Forget** is an end-to-end Alzheimer’s disease detection system using
-    blood transcriptomics. It combines machine learning, explainable AI,
-    patient-level machine unlearning, and privacy auditing.
+    This project detects Alzheimer’s disease using blood transcriptomics data and adds
+    privacy-preserving functionality through machine unlearning and membership inference
+    attack validation.
     """)
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Main dataset", DATASET)
+    col1.metric("Main Dataset", DATASET)
     col2.metric("Samples", X.shape[0])
-    col3.metric("Gene features", X.shape[1])
+    col3.metric("Gene Features", X.shape[1])
 
-    st.success("Main dataset: GSE63060")
-    st.info("Prototype dataset: GSE161199")
+    st.subheader("Main Contributions")
+    st.markdown("""
+    - Alzheimer’s disease classification using **XGBoost** and **LightGBM**
+    - Explainability using **SHAP**
+    - Patient-level deletion using **SISA-style unlearning**
+    - Privacy validation using **Membership Inference Attack**
+    - FASTA-to-k-mer demo module for sequence-processing requirement
+    - Interactive **Streamlit** interface
+    """)
 
+# =========================
+# DATASET
+# =========================
 elif page == "Dataset":
     st.header("Dataset Overview")
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Dataset", DATASET)
     col2.metric("Samples", X.shape[0])
-    col3.metric("Selected gene features", X.shape[1])
+    col3.metric("Selected Features", X.shape[1])
 
-    st.write("Labels: 0 = Control, 1 = Alzheimer’s Disease")
+    st.write("Labels: **0 = Control**, **1 = Alzheimer’s Disease**")
+    st.subheader("Class Distribution")
     st.dataframe(y.value_counts().rename("count"))
 
-    st.subheader("Preview")
+    st.subheader("Dataset Preview")
     st.dataframe(X.head())
 
+# =========================
+# MODEL METRICS
+# =========================
 elif page == "Model Metrics":
     st.header("Model Performance")
+
     st.info(f"Showing metrics for: {model_choice}")
 
     if metrics_path.exists():
@@ -104,13 +150,15 @@ elif page == "Model Metrics":
         col3.metric("ROC-AUC", round(float(metrics["roc_auc"].iloc[0]), 3))
 
         if "cv_roc_auc_mean" in metrics.columns:
-            st.metric(
-                "5-Fold CV ROC-AUC",
-                round(float(metrics["cv_roc_auc_mean"].iloc[0]), 3)
-            )
+            col4, col5 = st.columns(2)
+            col4.metric("CV ROC-AUC Mean", round(float(metrics["cv_roc_auc_mean"].iloc[0]), 3))
+            col5.metric("CV ROC-AUC Std", round(float(metrics["cv_roc_auc_std"].iloc[0]), 3))
     else:
         st.warning("Metrics file not found. Train the selected model first.")
 
+# =========================
+# PREDICT
+# =========================
 elif page == "Predict":
     st.header("Predict Alzheimer’s Disease")
     st.info(f"Using model: {model_choice}")
@@ -125,52 +173,178 @@ elif page == "Predict":
         col1.metric("Prediction", pred)
         col2.metric("Probability of AD", round(proba, 4))
 
+# =========================
+# EXPLAINABILITY
+# =========================
 elif page == "Explainability":
     st.header("SHAP Explainability")
 
+    st.write("""
+    SHAP explains how much each gene feature contributes to the model prediction.
+    Positive SHAP values push the prediction toward Alzheimer’s disease, while negative
+    values push toward Control.
+    """)
+
     if SHAP_PATH.exists():
-        st.image(str(SHAP_PATH), caption="SHAP summary plot")
+        st.image(str(SHAP_PATH), caption="SHAP Summary Plot")
     else:
         st.warning("SHAP image not found. Run explain_shap.py first.")
 
     if SHAP_TABLE.exists():
-        st.subheader("Top important gene probes")
-        st.dataframe(pd.read_csv(SHAP_TABLE).head(20))
+        st.subheader("Top Important Gene Probes")
+        st.dataframe(pd.read_csv(SHAP_TABLE).head(25))
     else:
         st.warning("SHAP table not found.")
 
-elif page == "Delete Patient":
-    st.header("Machine Unlearning")
-    sample_id = st.selectbox("Choose patient/sample to forget", X.index.tolist())
+# =========================
+# MACHINE UNLEARNING
+# =========================
+elif page == "Machine Unlearning":
+    st.header("Machine Unlearning: SISA-style Patient Deletion")
 
     st.write("""
-    This demo removes a sample from its assigned shard and retrains only the affected shard.
-    This simulates patient-level machine unlearning.
+    SISA means **Sharded, Isolated, Sliced, and Aggregated** training.
+    Instead of retraining the whole model after deleting one patient, the system retrains
+    only the affected shard.
     """)
+
+    sample_id = st.selectbox("Choose patient/sample to forget", X.index.tolist())
 
     if st.button("Forget this patient"):
         result = subprocess.run(
-            ["python", "src/unlearning/delete_patient.py", sample_id],
+            ["python", "-m", "src.unlearning.delete_patient", sample_id],
             capture_output=True,
             text=True
         )
 
+        st.subheader("Deletion Output")
         st.code(result.stdout)
 
-        if Path("reports/tables/deletion_log.csv").exists():
-            st.dataframe(pd.read_csv("reports/tables/deletion_log.csv"))
+        if result.stderr:
+            st.error(result.stderr)
 
+    if DELETION_LOG_PATH.exists():
+        st.subheader("Deletion Log")
+        st.dataframe(pd.read_csv(DELETION_LOG_PATH))
+
+    if UNLEARNING_BENCHMARK_PATH.exists():
+        st.subheader("Unlearning vs Full Retraining")
+        benchmark = pd.read_csv(UNLEARNING_BENCHMARK_PATH)
+        st.dataframe(benchmark)
+
+        if "time_sec" in benchmark.columns:
+            st.bar_chart(benchmark.set_index("method")["time_sec"])
+
+    if DELETED_SAMPLE_VERIFICATION_PATH.exists():
+        st.subheader("Deleted Sample Verification")
+        st.dataframe(pd.read_csv(DELETED_SAMPLE_VERIFICATION_PATH))
+    else:
+        st.warning("Deleted sample verification not found. Run benchmark_unlearning_vs_retraining.py first.")
+
+# =========================
+# PRIVACY AUDIT
+# =========================
 elif page == "Privacy Audit":
-    st.header("Membership Inference Privacy Audit")
+    st.header("Privacy Audit: Membership Inference Attack")
 
-    audit_path = Path("reports/tables/privacy_audit.csv")
+    st.write("""
+    A Membership Inference Attack tries to determine whether a specific patient sample
+    was used during model training. Higher attack accuracy means greater privacy risk.
+    """)
 
-    if audit_path.exists():
-        audit = pd.read_csv(audit_path)
-        st.write("Higher confidence can indicate higher memorization risk.")
+    if PRIVACY_AUDIT_PATH.exists():
+        st.subheader("Confidence / Entropy Privacy Audit")
+        audit = pd.read_csv(PRIVACY_AUDIT_PATH)
         st.dataframe(audit)
 
         if "sample_id" in audit.columns and "confidence" in audit.columns:
+            st.subheader("Confidence Chart")
             st.bar_chart(audit.set_index("sample_id")["confidence"])
     else:
         st.warning("Privacy audit file not found. Run membership_inference.py first.")
+
+    if MIA_BEFORE_AFTER_PATH.exists():
+        st.subheader("MIA Before vs After Unlearning")
+        mia_metrics = pd.read_csv(MIA_BEFORE_AFTER_PATH)
+        st.dataframe(mia_metrics)
+
+        before = mia_metrics[mia_metrics["stage"] == "Before unlearning"].iloc[0]
+        after = mia_metrics[mia_metrics["stage"] == "After deleting patients"].iloc[0]
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Before MIA Accuracy", round(float(before["mia_accuracy"]), 3))
+        col2.metric("After MIA Accuracy", round(float(after["mia_accuracy"]), 3))
+        col3.metric("After MIA AUC", round(float(after["mia_auc"]), 3))
+
+        st.markdown("""
+        ### Interpretation
+        - MIA means **Membership Inference Attack**.
+        - It tests whether an attacker can guess if a patient was used during training.
+        - Lower MIA accuracy after deletion means lower privacy leakage.
+        - If MIA accuracy does not decrease much, the model may still retain some information.
+        """)
+
+        if PER_SAMPLE_FORGETTING_PATH.exists():
+            st.subheader("Per-Sample Forgetting Proof")
+            forgetting = pd.read_csv(PER_SAMPLE_FORGETTING_PATH)
+            st.dataframe(forgetting)
+
+            avg_conf_change = forgetting["confidence_change"].mean()
+            avg_entropy_change = forgetting["entropy_change"].mean()
+
+            c1, c2 = st.columns(2)
+            c1.metric("Avg Confidence Change", round(float(avg_conf_change), 4))
+            c2.metric("Avg Entropy Change", round(float(avg_entropy_change), 4))
+
+            st.markdown("""
+            **How to read this:**
+            - Confidence decrease means the model became less certain about deleted patients.
+            - Entropy increase means the model became more uncertain.
+            - This supports the claim that deletion reduced memorization.
+            """)
+
+    elif MIA_METRICS_PATH.exists():
+        st.subheader("MIA Attack Metrics")
+        mia_metrics = pd.read_csv(MIA_METRICS_PATH)
+        st.dataframe(mia_metrics)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("MIA Accuracy", round(float(mia_metrics["mia_accuracy"].iloc[0]), 3))
+        col2.metric("MIA F1", round(float(mia_metrics["mia_f1"].iloc[0]), 3))
+        col3.metric("MIA AUC", round(float(mia_metrics["mia_auc"].iloc[0]), 3))
+    else:
+        st.warning("MIA metrics not found. Run mia_before_after_unlearning.py first.")
+
+# =========================
+# FASTA / K-MER DEMO
+# =========================
+elif page == "FASTA / k-mer Demo":
+    st.header("FASTA / k-mer Demo Module")
+
+    st.write("""
+    This module demonstrates the official project requirement of converting raw DNA-like
+    FASTA sequences into numerical features using k-mer counting.
+    """)
+
+    if FASTA_X_PATH.exists() and FASTA_Y_PATH.exists():
+        X_kmer = pd.read_csv(FASTA_X_PATH, index_col=0)
+        y_kmer = pd.read_csv(FASTA_Y_PATH, index_col=0)["label"]
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("FASTA File", "Generated")
+        col2.metric("Samples", X_kmer.shape[0])
+        col3.metric("k-mer Features", X_kmer.shape[1])
+
+        st.subheader("FASTA Label Distribution")
+        st.dataframe(y_kmer.value_counts().rename("count"))
+
+        st.subheader("k-mer Feature Preview")
+        st.dataframe(X_kmer.head())
+
+        if FASTA_PATH.exists():
+            st.subheader("Example FASTA Records")
+            with open(FASTA_PATH, "r") as f:
+                lines = f.readlines()[:8]
+            st.code("".join(lines))
+    else:
+        st.warning("FASTA demo files not found. Run fasta_kmer_demo.py first.")

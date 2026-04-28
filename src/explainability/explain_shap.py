@@ -4,28 +4,30 @@ import joblib
 import shap
 import matplotlib.pyplot as plt
 
-PROCESSED = Path("data/processed")
-FIGS = Path("reports/figures")
-TABLES = Path("reports/tables")
-FIGS.mkdir(parents=True, exist_ok=True)
-TABLES.mkdir(parents=True, exist_ok=True)
+from src.utils.cleaning import clean_feature_names
 
 X = pd.read_csv("data/gse63060/processed/X.csv", index_col=0)
+X = clean_feature_names(X)
+
 model = joblib.load("models/gse63060_xgboost/xgboost.joblib")
 
-explainer = shap.Explainer(model, X)
-shap_values = explainer(X)
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X)
 
-shap.plots.beeswarm(shap_values, show=False)
-plt.tight_layout()
-plt.savefig(FIGS / "shap_beeswarm.png", dpi=200)
+OUT = Path("reports/shap")
+OUT.mkdir(parents=True, exist_ok=True)
+
+plt.figure()
+shap.summary_plot(shap_values, X, show=False)
+plt.savefig(OUT / "shap_summary.png", bbox_inches="tight", dpi=200)
 plt.close()
 
-mean_abs = abs(shap_values.values).mean(axis=0)
 importance = pd.DataFrame({
     "GeneID": X.columns,
-    "mean_abs_shap": mean_abs
+    "mean_abs_shap": abs(shap_values).mean(axis=0)
 }).sort_values("mean_abs_shap", ascending=False)
 
-importance.to_csv(TABLES / "top_shap_genes.csv", index=False)
+importance.to_csv(OUT / "shap_top_features.csv", index=False)
+
+print("SHAP saved to reports/shap/")
 print(importance.head(20))

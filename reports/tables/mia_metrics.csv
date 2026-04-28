@@ -1,0 +1,2 @@
+stage,mia_accuracy,mia_f1,mia_auc,attack_features
+Before unlearning,0.8484848484848485,0.8837209302325582,0.8995762711864407,"confidence, entropy, probability_AD"

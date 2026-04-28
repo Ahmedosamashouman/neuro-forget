@@ -1,0 +1,3 @@
+stage,deleted_samples_count,mia_accuracy,mia_f1,mia_auc,meaning
+Before unlearning,10,0.8484848484848485,0.8837209302325582,0.8995762711864407,Lower MIA accuracy after deletion means lower membership leakage
+After deleting patients,10,0.8854166666666666,0.9105691056910569,0.90625,Lower MIA accuracy after deletion means lower membership leakage

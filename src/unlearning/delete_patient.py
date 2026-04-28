@@ -1,39 +1,73 @@
-from pathlib import Path
-import time
 import sys
+import time
+from pathlib import Path
 import pandas as pd
 import joblib
-from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
 
-sample_to_delete = sys.argv[1] if len(sys.argv) > 1 else None
-if sample_to_delete is None:
-    raise SystemExit("Usage: python src/unlearning/delete_patient.py GSM_ID")
+from src.utils.cleaning import clean_feature_names
 
-X = pd.read_csv("data/processed/X_ad_ctrl.csv", index_col=0)
-y = pd.read_csv("data/processed/y_ad_ctrl.csv", index_col=0)["label"]
-mapping = pd.read_csv("reports/tables/patient_to_shard.csv")
+if len(sys.argv) < 2:
+    print("Usage: python -m src.unlearning.delete_patient SAMPLE_ID")
+    sys.exit(1)
 
-row = mapping[mapping["sample_id"] == sample_to_delete]
-if row.empty:
-    raise SystemExit(f"Sample not found: {sample_to_delete}")
+sample_id = sys.argv[1].replace('"', '').replace("'", "")
 
-shard = int(row.iloc[0]["shard"])
-ids = mapping[(mapping["shard"] == shard) & (mapping["sample_id"] != sample_to_delete)]["sample_id"]
+X = pd.read_csv("data/gse63060/processed/X.csv", index_col=0)
+y = pd.read_csv("data/gse63060/processed/y.csv", index_col=0)["label"]
+
+X = clean_feature_names(X)
+y.index = X.index
+
+REPORT = Path("reports/tables")
+REPORT.mkdir(parents=True, exist_ok=True)
+
+mapping_path = REPORT / "patient_to_shard.csv"
+
+if not mapping_path.exists():
+    print("patient_to_shard.csv not found. Run:")
+    print("python -m src.unlearning.benchmark_unlearning_vs_retraining")
+    sys.exit(1)
+
+mapping = pd.read_csv(mapping_path)
+mapping["sample_id"] = mapping["sample_id"].astype(str).str.replace('"', '').str.replace("'", "")
+
+if sample_id not in mapping["sample_id"].values:
+    print(f"Sample not found: {sample_id}")
+    sys.exit(1)
+
+affected_shard = int(mapping.loc[mapping["sample_id"] == sample_id, "shard"].iloc[0])
+
+shard_samples = mapping[mapping["shard"] == affected_shard]["sample_id"].tolist()
+remaining = [s for s in shard_samples if s != sample_id and s in X.index]
 
 start = time.time()
-model = LogisticRegression(max_iter=2000, class_weight="balanced")
-model.fit(X.loc[ids], y.loc[ids])
-unlearn_time = time.time() - start
 
-joblib.dump(model, f"models/shards/shard_{shard}.joblib")
+model = XGBClassifier(
+    n_estimators=300,
+    max_depth=3,
+    learning_rate=0.03,
+    subsample=0.9,
+    colsample_bytree=0.8,
+    eval_metric="logloss",
+    random_state=42
+)
+
+model.fit(X.loc[remaining], y.loc[remaining])
+
+Path("models/shards").mkdir(parents=True, exist_ok=True)
+joblib.dump(model, f"models/shards/shard_{affected_shard}.joblib")
+
+elapsed = time.time() - start
 
 log = pd.DataFrame([{
-    "deleted_sample": sample_to_delete,
-    "affected_shard": shard,
-    "remaining_samples_in_shard": len(ids),
-    "unlearning_time_sec": unlearn_time
+    "deleted_sample": sample_id,
+    "affected_shard": affected_shard,
+    "remaining_samples_in_shard": len(remaining),
+    "unlearning_time_sec": elapsed
 }])
-log.to_csv("reports/tables/deletion_log.csv", index=False)
 
-print("Patient forgotten from affected shard.")
+log.to_csv(REPORT / "deletion_log.csv", index=False)
+
+print("Patient forgotten successfully")
 print(log)

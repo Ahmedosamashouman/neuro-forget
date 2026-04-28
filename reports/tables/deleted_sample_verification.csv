@@ -1,0 +1,2 @@
+deleted_sample,affected_shard,probability_AD_before_unlearning,probability_AD_after_unlearning,absolute_probability_change
+GSM1539080,0,0.283846378326416,0.45850852131843567,0.17466214299201965
